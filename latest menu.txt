@@ -1,0 +1,612 @@
+
+#include <LiquidCrystal.h>
+// initialize the library by associating any needed LCD interface pin
+// with the arduino pin number it is connected to
+const int rs = 5, en = 18, d4 = 19, d5 = 21, d6 = 22, d7 = 23;
+
+LiquidCrystal lcd(rs, en, d4, d5, d6, d7);
+int i;
+ int reading;
+byte arrow[8] = {
+  0b00000,
+  0b00100,
+  0b00110,
+  0b11111,
+  0b00110,
+  0b00100,
+  0b00000,
+  0b00000
+};
+
+
+unsigned long lastSerialDataPrint = 0;
+unsigned long totalTimeIntervalSerialDataPrint = 1000;
+#define noOfButtons 4     //Exactly what it says; must be the same as the number of elements in buttonPins
+#define bounceDelay 10    //Minimum delay before regarding a button as being pressed and debounced
+#define minButtonPress 3  //Number of times the button has to be detected as pressed before the press is considered to be valid
+
+
+const int numOfInputs = 4;
+const int inputPins[numOfInputs] = {33,32,35,34};
+int inputState[numOfInputs];
+int lastInputState[numOfInputs] = {LOW,LOW,LOW,LOW};
+bool inputFlags[numOfInputs] = {LOW,LOW,LOW,LOW};
+long lastDebounceTime[numOfInputs] = {0,0,0,0};
+long debounceDelay = 5;
+
+const int numOftitleScreen = 4;
+const int numOfsubMenu0Screen=2;
+const int numOfsubMenu1Screen=2;
+const int numOfsubMenu2Screen=2;
+const int numOfsubMenu3Screen=2;
+
+int titleScreenPrev=0;
+bool UP=0;
+bool DN=0;
+bool BACK=0;
+bool SELECT=0;
+bool menuSelect=0;
+bool subMenuSelect=0;
+
+int subMenu0=0;
+int subMenu1=0;
+int subMenu2=0;
+int subMenu3=0;
+
+int titleScreen=0;
+int solarScreen=0;
+int batScreen=0;
+int invScreen=0;
+int mpptScreen=0; 
+const int numOfScreens = 10;
+const int numOfsubMenu1Params=3;
+ const int numOfsubMenu2Params=3;
+const int numOfsubMenu3Params=3;
+const int numOfsubMenu0Params=3;
+const int numOfsubMenu0=3;
+const int numOfsubMenu1=3;
+const  int numOfsubMenu2=3;
+const int numOfsubMenu3=3;
+ const int numOfsubMenu4=3;
+  int subMenu3Prev=0;
+  int subMenu2Prev=0;
+  int subMenu1Prev=0;
+ int subMenu0Prev=0;
+//int mpptScreen=0;
+
+
+String title[numOftitleScreen] = {"Solar","Battery","Inverter","MPPT"};
+
+
+String subMenu0String[numOfsubMenu0][2] = {{"SolarVMAX","Volts"}, {"SolarPmax", "Watts"},{"solarIMAX","AMP"}};
+String subMenu1String[numOfsubMenu1][2] = {{"BatVMAX","Volts"}, {"BatVMIN", "Volts"},{"CHG_IMAX","AMP"}};
+String subMenu2String[numOfsubMenu2][2] = {{"INV_VMAX","Volts"}, {"INV_VMIN", "Volts"},{"INV_IMAX","AMP"}};
+String subMenu3String[numOfsubMenu3][2]  = {{"MPPT_MODE","MODE"}, {"MPPT_VMAX", "VOLTS"}, {"MPPT_IMAX","AMP"}};
+
+//String MPPT[numOfMpptPara] = {"MPPT_MODE","MPPT_IMAX","MPPT_VMIN"};
+float subMenu1Para[numOfsubMenu1Params]={0.0,0.0,0.0};
+float subMenu1ParaMax[numOfsubMenu1Params]={100.0,100.0,80.0};
+float subMenu1ParaMin[numOfsubMenu1Params]={0.0,0.0,0.0};
+float subMenu2Para[numOfsubMenu2Params]={0.0,0.0,0.0};
+float subMenu2ParaMax[numOfsubMenu2Params]={100.0,100.0,80.0};
+float subMenu2ParaMin[numOfsubMenu2Params]={0.0,0.0,0.0};
+float subMenu3Para[numOfsubMenu3Params]={0.0,0.0,0.0};
+float subMenu3ParaMax[numOfsubMenu3Params]={100.0,100.0,80.0};
+float subMenu3ParaMin[numOfsubMenu3Params]={100.0,100.0,80.0};
+float subMenu0Para[numOfsubMenu0Params]={0.0,0.0,0.0};
+float subMenu0ParaMax[numOfsubMenu0Params]={100.0,100.0,80.0};
+float subMenu0ParaMin[numOfsubMenu0Params]={0.0,0.0,0.0};
+float paraIncr[]={1,1,1,1,1};
+//long lastDebounceTime[numOfInputs] = {0,0,0,0};
+//long debounceDelay = 5;
+//bool SEL=0;
+
+//LCD Menu Logic
+
+//int lastInputState[numOfInputs] = {LOW,LOW,LOW,LOW};
+//int lastInputState[numOfInputs] = {LOW,LOW,LOW,LOW};
+//int lastInputState[numOfInputs] = {LOW,LOW,LOW,LOW};
+void setup() {
+  // put your setup code here, to run once:
+  lcd.begin(16, 2); 
+   for(int i = 0; i < numOfInputs; i++) {
+    pinMode(inputPins[i], INPUT_PULLDOWN);
+    //digitalWrite(inputPins[i], HIGH); // pull-up 20k
+  }
+  //Serial.begin(9600);
+  lcd.begin(16, 2);
+  Serial.begin(115200);
+}
+
+void loop() {
+  
+  if(titleScreen<numOftitleScreen){titleScreenPrev=titleScreen-1;}
+  if(titleScreen==0){titleScreenPrev=3;}
+
+  if (subMenu0>=1){ subMenu0Prev=subMenu0--;}
+  if( subMenu0==0){subMenu0Prev=numOfsubMenu0; }
+  if (subMenu1>=1){ subMenu1Prev=subMenu1--;}
+  if( subMenu1==0){subMenu1Prev=numOfsubMenu1; }
+  if (subMenu2>=1){ subMenu2Prev=subMenu2--;}
+  if( subMenu2==0){subMenu2Prev=numOfsubMenu2; }
+  if (subMenu3>=1){ subMenu3Prev=subMenu3--;}
+  if( subMenu3==0){subMenu3Prev=numOfsubMenu3; }
+buttonRead() ;
+
+//resolveInputFlags();
+
+ buttonResolve();
+
+  printLcd();
+
+	if ((millis() - lastSerialDataPrint)
+					> totalTimeIntervalSerialDataPrint)
+         { 
+Serial.println  ("DN");
+  	Serial.println  (DN);
+ Serial.println ("titleScreen");
+  		Serial.println  (titleScreen);
+    	Serial.println ("subMenu0");
+    	Serial.println (subMenu0);
+      	Serial.println ("subMenu1");
+    	Serial.println (subMenu1);
+      	Serial.println ("subMenu2");
+    	Serial.println (subMenu2);
+      	Serial.println ("subMenu3");
+    	Serial.println (subMenu3);
+      Serial.println ("SELECT");
+    	Serial.println (SELECT);
+ Serial.println ("titleScreenPrev" );
+      Serial.println(titleScreenPrev );
+Serial.println("MENU" );
+    Serial.println(menuSelect);
+lastSerialDataPrint = millis();
+			}
+
+}
+
+
+void buttonRead() {
+ 
+    
+    if (digitalRead(inputPins[0])==HIGH) 
+    {
+      delay(50);
+    
+    
+        if (digitalRead(inputPins[0])==HIGH)
+      {
+       
+          UP= HIGH;
+        }
+      }
+    
+    if (digitalRead(inputPins[1])==HIGH) 
+    {
+      delay(50);
+    
+    
+        if (digitalRead(inputPins[1])==HIGH)
+      {
+       
+          DN= HIGH;
+        }
+      }
+      if (digitalRead(inputPins[2])==HIGH) 
+    {
+      delay(100);
+    
+    
+        if (digitalRead(inputPins[2])==HIGH)
+      {
+       
+          BACK= HIGH;
+        }
+      }
+      if (digitalRead(inputPins[3])==HIGH) 
+    {
+      delay(100);
+    
+    
+        if (digitalRead(inputPins[3])==HIGH)
+      {
+       
+          SELECT= HIGH;
+        }
+      }
+  }
+  
+  
+
+/*
+void resolveInputFlags() {
+  
+  if ( inputFlags[0]==HIGH){ UP=HIGH;
+ inputFlags[0]=LOW;}
+ if ( inputFlags[1]==HIGH){ BACK =HIGH;
+ inputFlags[1]=LOW;}
+if  (inputFlags[2]==HIGH){ SELECT=HIGH;
+inputFlags[2]=LOW;}
+if  (inputFlags[3]==HIGH){ SELECT=HIGH;
+inputFlags[3]=LOW;}
+}*/
+void  buttonResolve()
+{
+           // if(Set==1)
+          //  {
+
+            if (SELECT==HIGH)
+            { 
+              
+                      if( menuSelect==1)
+                      { 
+                    subMenuSelect=HIGH;
+                    SELECT=0;}
+                    if( menuSelect==0)
+                                  { 
+                    menuSelect=1;
+                    SELECT=0;}
+            
+            }
+            
+            if (BACK==HIGH)
+            { 
+              if( subMenuSelect==HIGH){
+            subMenuSelect=0;
+            BACK=0;}
+            if( menuSelect==HIGH && subMenuSelect==LOW){
+            menuSelect=0;
+            BACK=0;}}
+
+            
+
+
+/*************************************************************************************************************
+UP and DN button pressed and submenu has not selected
+************************************************************************************************************/
+                      if(UP==1&&menuSelect==0)
+                      
+                        { 
+                              if (titleScreen<numOftitleScreen){ titleScreen++;}
+                            
+                            
+                              if (titleScreen>=numOftitleScreen) {titleScreen=0;}
+                              UP=0;
+                        }
+                    if(DN==1&&menuSelect==0)
+                      
+                        { 
+                          
+                              if (titleScreen>=1){ titleScreen--;}
+                            
+                            
+                              if (titleScreen==0) {titleScreen=numOftitleScreen;}
+                              DN=0;
+                        }
+
+                
+/*******************************************************************************************************************************************
+UP button pressed and submenu is selected
+********************************************************************************************************************************************
+*/
+
+                            if(UP==1&&menuSelect==1&&subMenuSelect==0)
+                      
+                            { 
+                              if (titleScreen==0)
+                              {
+
+                              if(subMenu0<numOfsubMenu0Screen)
+                              { subMenu0++;}
+                              else if(subMenu0>=numOfsubMenu0Screen)
+                              { subMenu0=0;}
+                              UP=0;
+                              }
+                
+                            if (titleScreen==1)
+                                {
+
+                                if(subMenu1<numOfsubMenu1Screen)
+                                { subMenu1++;}
+                                else if(subMenu1>=numOfsubMenu1Screen)
+                                { subMenu1=0;}
+                                 UP=0;
+                                }
+                                
+                                if (titleScreen==2)
+                                {
+
+                                if(subMenu2<numOfsubMenu2Screen)
+                                { subMenu2++;}
+                                else if(subMenu2>=numOfsubMenu2Screen)
+                                { subMenu2=0;}
+                                 UP=0;}
+                                if (titleScreen==3)
+                                {
+
+                                if(subMenu3<numOfsubMenu3Screen)
+                                { subMenu3++;}
+                                else if(subMenu3>=numOfsubMenu3Screen)
+                                { subMenu3=0;}
+                                 UP=0;}
+
+                          }
+
+
+
+
+                          if(UP==1&&subMenuSelect==1)
+                      
+                            { 
+                              if (titleScreen==0)
+                              {
+                                if (subMenu0Para[subMenu0]<=subMenu0ParaMax[subMenu0])
+                                {
+                                  subMenu0Para[subMenu0] ++;
+                                  UP=0;
+                                }
+                                if (subMenu0Para[subMenu0]==subMenu0ParaMax[subMenu0])
+                                {
+                                  //subMenu0Para[subMenu0]=subMenu0ParaMin[subMenu0];
+                                  UP=0;
+                                }}
+
+                              
+                           if (titleScreen==1)
+                              {
+                                if (subMenu1Para[subMenu1]<=subMenu1ParaMax[subMenu1])
+                                {
+                                  subMenu1Para[subMenu1] ++;
+                                  UP=1;
+                                }
+                                if (subMenu1Para[subMenu1]==subMenu1ParaMax[subMenu1])
+                                {
+                                  //subMenu1Para[subMenu1]=subMenu1ParaMin[subMenu1];
+                                  UP=0;
+                                }}
+
+                              if (titleScreen==2)
+                              {
+                                if (subMenu2Para[subMenu2]<=subMenu2ParaMax[subMenu2])
+                                {
+                                  subMenu2Para[subMenu2] ++;
+                                  UP=0;
+                                }
+                                if (subMenu2Para[subMenu2]==subMenu2ParaMax[subMenu2])
+                                {
+                                 // subMenu2Para[subMenu2]=subMenu2ParaMin[subMenu2];
+                                  UP=0;
+                                }}
+                                      if (titleScreen==3)
+                                    {
+                                      if (subMenu3Para[subMenu3]<=subMenu3ParaMax[subMenu3])
+                                      {
+                                        subMenu3Para[subMenu3] ++;
+                                        UP=0;
+                                      }
+                                      if (subMenu3Para[subMenu3]==subMenu3ParaMax[subMenu3])
+                                      {
+                                       // subMenu3Para[subMenu3]=subMenu3ParaMin[subMenu3];
+                                        UP=0;
+                                      }}
+
+                          }
+/*****************************************************************************************************************************************
+DN button pressed and submenu is selected
+********************************************************************************************************************************************/
+                    if(DN==1&&menuSelect==1&&subMenuSelect==0)
+              
+                { 
+                      if (titleScreen==1)
+                      {
+
+                      if(subMenu1>=1)
+                      { subMenu1--;DN=0;}
+                      else if(subMenu1==0)
+                      { subMenu1=numOfsubMenu1Screen;}
+                       DN=0;}
+                
+                  if (titleScreen==2)
+                      {
+
+                      if(subMenu2>=1)
+                      { subMenu2--;DN=0;}
+                      else if(subMenu2==0)
+                      { subMenu2==numOfsubMenu2Screen;}
+                       DN=0;}
+                      
+                      if (titleScreen==0)
+                      {
+
+                      if(subMenu0>=1)
+                      { subMenu0--;
+                      DN=0;}
+                      else if(subMenu0==0)
+                      { subMenu0=numOfsubMenu0Screen;}
+                       DN=0;}
+                      
+                      
+
+                }
+ /**************************************************************************************************************
+DN button pressed and submenu is selected
+****************************************************************************************************************
+*/
+       
+
+                          if(DN==1&&subMenuSelect==1)
+                      
+                            { 
+                              if (titleScreen==0)
+                              {
+                                if (subMenu0Para[subMenu0]>subMenu0ParaMax[subMenu0])
+                                {
+                                  subMenu0Para[subMenu0] --;
+                                  DN=0;
+                                }
+                                if (subMenu0Para[subMenu0]==subMenu0ParaMin[subMenu0])
+                                {
+                                  subMenu0Para[subMenu0]=subMenu0ParaMax[subMenu0];
+                                  DN=0;
+                                }}
+
+                              
+                           if (titleScreen==1)
+                              {
+                                if (subMenu1Para[subMenu1]>subMenu1ParaMin[subMenu1])
+                                {
+                                  subMenu1Para[subMenu1] --;
+                                  DN=1;
+                                }
+                                if (subMenu1Para[subMenu1]==subMenu1ParaMin[subMenu1])
+                                {
+                                  subMenu1Para[subMenu1]=subMenu1ParaMax[subMenu1];
+                                  DN=0;
+                                }}
+
+                              if (titleScreen==2)
+                              {
+                                if (subMenu2Para[subMenu2]>subMenu2ParaMin[subMenu2])
+                                {
+                                  subMenu2Para[subMenu2] --;
+                                  DN=0;
+                                }
+                                if (subMenu2Para[subMenu2]==subMenu2ParaMin[subMenu2])
+                                {
+                                  subMenu2Para[subMenu2]=subMenu2ParaMax[subMenu2];
+                                  DN=0;
+                                }}
+                                      if (titleScreen==3)
+                                    {
+                                      if (subMenu3Para[subMenu3]>subMenu3ParaMin[subMenu3])
+                                      {
+                                        subMenu3Para[subMenu3] --;
+                                        DN=0;
+                                      }
+                                      if (subMenu3Para[subMenu3]==subMenu3ParaMin[subMenu3])
+                                      {
+                                        subMenu3Para[subMenu3]=subMenu3ParaMax[subMenu3];
+                                        DN=0;
+                                      }}
+
+}
+}
+void printLcd()
+{
+  
+switch (titleScreen)
+case 0:
+
+      break;
+  
+    if(menuSelect==0)
+
+    {
+       lcd.setCursor(0,0);
+       //lcd.write(byte(2));
+        lcd.print(">");
+      lcd.print(title[titleScreen]);
+       lcd.print("      ");
+      lcd.setCursor(0,1);
+       lcd.print(" ");
+       lcd.print(title[titleScreenPrev]);
+        lcd.print("       ");
+    }
+
+    if(menuSelect==1&&subMenuSelect==1)
+    {
+
+ if (titleScreen==0)
+ {
+    lcd.setCursor(0,0);
+  lcd.print(subMenu0String[subMenu0][0]);
+  lcd.print("           ");
+  lcd.setCursor(0,1);
+  
+  
+  lcd.print(" ");
+ lcd.print(subMenu0Para[subMenu0]);
+ lcd.print(" ");
+ lcd.print(subMenu0String[subMenu0][1]);
+ lcd.print("           ");
+ }
+ if (titleScreen==1)
+ {lcd.setCursor(0,0);
+  lcd.print(subMenu1String[subMenu1][0]);
+  lcd.print("           ");
+   lcd.setCursor(0,1);
+  lcd.print(" ");
+ lcd.print(subMenu1Para[subMenu1]);
+ lcd.print(" ");
+ lcd.print(subMenu1String[subMenu1][1]);
+ lcd.print("           ");
+ }
+ if (titleScreen==2)
+ {lcd.setCursor(0,0);
+  lcd.print(subMenu2String[subMenu2][0]);
+  lcd.print("           ");
+   lcd.setCursor(0,1);
+  lcd.print(" ");
+ lcd.print(subMenu2Para[subMenu2]);
+ lcd.print(" ");
+ lcd.print(subMenu2String[subMenu2][1]);
+ lcd.print("           ");
+ }
+ if (titleScreen==3)
+ {lcd.setCursor(0,0);
+  lcd.print(subMenu3String[subMenu3][0]);
+  lcd.print("           ");
+   lcd.setCursor(0,1);
+  lcd.print(" ");
+ lcd.print(subMenu3Para[subMenu3]);
+ lcd.print(" ");
+ lcd.print(subMenu3String[subMenu3][1]);
+ lcd.print("           ");
+ }
+ 
+ 
+}
+
+  if(menuSelect==1&&subMenuSelect==0)
+    {
+ 
+ 
+ if (titleScreen==1)
+ {lcd.setCursor(0,0);
+  lcd.print(">");
+  lcd.print(subMenu1String[subMenu1][0]);
+  lcd.print("           ");
+   lcd.setCursor(0,1);
+  lcd.print(" ");
+lcd.print(subMenu1String[subMenu1Prev][0]);
+
+ lcd.print("           ");
+ }
+ if (titleScreen==2)
+ {lcd.setCursor(0,0);
+  lcd.print(">");
+  lcd.print(subMenu2String[subMenu2][0]);
+  lcd.print("           ");
+   lcd.setCursor(0,1);
+    lcd.print(" ");
+lcd.print(subMenu2String[subMenu1Prev][0]);
+ lcd.print("     ");
+ 
+ }
+ if (titleScreen==3)
+ {lcd.setCursor(0,0);
+  lcd.print(">");
+  lcd.print(subMenu3String[subMenu3][0]);
+  lcd.print("           ");
+  lcd.setCursor(0,1);
+    lcd.print(" ");
+lcd.print(subMenu3String[subMenu3Prev][0]);
+ lcd.print("     ");
+ }
+}
+}
+
+
+  
+
+
