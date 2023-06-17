@@ -1,0 +1,562 @@
+#include <WiFi.h>
+#include <HTTPClient.h>
+#include <WebServer.h>
+#include <EEPROM.h>
+#include <HardwareSerial.h>
+#include <Arduino_JSON.h>
+#include <string.h>
+const char startChar = '*', endChar = '#';
+char ch;
+char *str;
+
+#define button2wifi     26
+#define button1wifi     27
+
+const int LED1pin = 2;
+const int LED2pin = 32;
+
+unsigned long prevMillisReconnect = 0;
+unsigned long intervalReconnect = 90000;
+
+//Serial Communication
+bool isCompleted = false;
+char buffer[516];
+char *bufPtr = buffer; // address of the buffer char array stored in char pointer bufPtr.
+int dspicDataLen = 0;
+int i = 0;
+int statusCode;
+
+unsigned long lastSerialDataPrint = 0;
+unsigned long totalTimeIntervalSerialDataPrint = 2000;
+
+String esid = "";
+String epass = "";
+String dspicData ="MODEL: GREEN 80A 220C-4L,BATTERY VOLT:13.2 V,SOLAR VOLT:0.3 V,SOLAR WATTS:0 W,SOLAR AMPS:0.0 A,OUTPUT AMPS:0.0 A,SOLAR PEAK:0 W,DAY UNIT:0.0 U,TOTAL UNIT:0.0 U,HEAT:43 C,BATTERY MODE:12 V,SOLAR:OFF,SOLAR CHARGING:OFF,RELAY SWICH:OFF,ABSPN COUNTER:0,RELAY:OFF";
+//String deviceData;
+String macAddr;
+String networks;
+String content;
+String st;
+String pubIp = "";
+String prevBatIMax = "0";
+String prevBatVMax = "0";
+
+char *arrayPair[30];
+char *arrayKey[30];
+char *arrayValue[30];
+
+int noOfParams = 0;
+WebServer server(80);        //Local server
+const char *smartIoTReadings = "http://54.172.135.28:8080/iot/recieveReadings";
+
+void setup() {
+
+	Serial.begin(115200);
+
+	macAddr = WiFi.macAddress();
+	pinMode(26, INPUT_PULLDOWN);
+	pinMode(27, INPUT_PULLDOWN);
+	pinMode(32, OUTPUT);
+	pinMode(2, OUTPUT);
+
+	readCredentialsAndStartWiFi();
+
+	enableCORS();
+	createWebServer();
+	scan();
+
+	Serial.print ("setup() running in core ");
+	Serial.println (xPortGetCoreID());
+
+	xTaskCreatePinnedToCore(readSerialData,    // Function to implement the task
+			"ReadingSerialData",   // Name of the task
+			1000,      // Stack size in bytes
+			NULL,      // Task input parameter
+			0,         // Priority of the task
+			NULL,      // Task handle.
+			0          // Core where the task should run
+			);
+
+}
+
+void readCredentialsAndStartWiFi() {
+	Serial.println("Disconnecting current WiFi connection");
+	WiFi.disconnect();
+	EEPROM.begin(256); //Initializing EEPROM
+	delay(10);
+	Serial.println("Reading EEPROM SSID");
+
+	for (int i = 0; i < 32; ++i) {
+		esid += char(EEPROM.read(i));
+	}
+	Serial.print("SSID: ");
+	Serial.println(esid);
+	Serial.println("Reading EEPROM PASSWORD");
+
+	for (int i = 32; i < 96; ++i) {
+		epass += char(EEPROM.read(i));
+	}
+
+	Serial.print("PASS: ");
+	Serial.println(epass);
+
+	if (esid.length() > 0 && epass.length() > 0) {
+		Serial.println("Credential Found in EPROM- Starting STA Mode..");
+		WiFi.begin(esid.c_str(), epass.c_str());
+		getPublicIP();
+	} else {
+		Serial.println("HotSpot Mode starting...");
+		enableHotSpot(); // Setup HotSpot
+	}
+}
+
+/*
+ * Function to Read the Serial Data from the Serial Communication.
+ * */
+void readSerialData(void *pvParameters) {
+
+	while (1) {
+		
+
+		if (Serial.available() && !isCompleted) {
+			//Serial.println(" Serial data available");
+			ch = Serial.read();
+			if (bufPtr == buffer) // still haven't found startChar in serial
+					{
+				if (ch == startChar) {
+					*bufPtr++ = ch; // puts ch into memory at the current address in bufPtr then increments bufPtr
+				}
+			} else {
+				if (ch == endChar) {
+					*bufPtr = 0;
+					bufPtr = buffer; // reset the buffer
+					isCompleted = true;
+
+				} else {
+					*bufPtr++ = ch; // puts ch into memory at the current address in bufPtr then increments bufPtr
+				}
+			}
+		}
+		if (isCompleted) {
+			dspicData = String(buffer);
+
+			if ((millis() - lastSerialDataPrint)
+					> totalTimeIntervalSerialDataPrint) {
+				Serial.println(" Serial data Completed Received :");
+				Serial.println(dspicData);
+				lastSerialDataPrint = millis();
+			}
+			dspicData.remove(0, 1);
+			isCompleted = false;
+			dspicDataLen = dspicData.length();
+		}
+
+	}
+
+}
+
+void loop() {
+
+	if (testWifi()) {
+
+		delay(100);
+
+		while (pubIp == "") {
+			Serial.println(" Trying to get public IP ");
+			getPublicIP();
+			delay(500);
+		}
+
+	//	if (dspicDataLen != 0) {
+		getDataFromDevice(dspicData);
+		sendData();
+    dspicDataLen =0;
+		//}
+
+	}
+
+	if ((digitalRead( button1wifi) == 1) || (digitalRead( button2wifi) == 1)) {
+		Serial.println("Enabling HotSpot");
+		scan();
+		enableHotSpot(); // Setup HotSpot
+		delay(1000);
+	}
+	server.handleClient();
+	ledBlink();
+	wifiReconnect();
+
+}
+
+void getDataFromDevice(String deviceData) {
+
+	char *deviceDataChar = new char[516];
+	strcpy(deviceDataChar, deviceData.c_str());
+	noOfParams = countParams(deviceDataChar);
+ 
+
+	for (i = 0; i <= noOfParams; i++) {
+		String pair = getValue(deviceData, ',', i);
+		char *pairChar = new char[48];
+		strcpy(pairChar, pair.c_str());
+		arrayPair[i] = pairChar;
+
+		String key = getValue(pair, ':', 0);
+		char *keyChar = new char[24];
+		strcpy(keyChar, key.c_str());
+		arrayKey[i] = keyChar;
+
+		String value = getValue(pair, ':', 1);
+		char *valueChar = new char[24];
+		strcpy(valueChar, value.c_str());
+		arrayValue[i] = valueChar;
+	}
+	delay(100 * noOfParams);
+}
+
+int countParams(char *str) {
+	int count = 0;
+	int i = 0;
+
+	while (str[i] != '\0') {
+		if (str[i] == ',') {
+			count++;
+		}
+		i++;
+	}
+	return count;
+}
+
+bool testWifi(void) {
+	int c = 0;
+	while (c < 20) {
+		if (WiFi.status() == WL_CONNECTED) {
+			return true;
+		}
+		delay(100);
+		c++;
+	}
+	return false;
+}
+
+void enableHotSpot() {
+	WiFi.disconnect();
+	delay(100);
+	WiFi.mode(WIFI_AP);
+	WiFi.softAP("IoTWiFi", "");
+	Serial.println("Initializing ESP32 in Access Point or HotSpot Mode ");
+	server.begin();
+	Serial.println("Done");
+}
+
+void createWebServer() {
+	server.on("/", handleRoot);
+	server.on("/setCredential", setCredential);
+	server.on("/scan", scanNetworks);
+}
+
+void getPublicIP() {
+	HTTPClient http;
+	http.begin("http://checkip.dyndns.org");
+	int httpCode = http.GET();
+	if (httpCode == HTTP_CODE_OK) {
+		String payload = http.getString();
+		int indexStart = payload.indexOf(":") + 2;
+		int indexEnd = payload.indexOf("<", indexStart);
+		pubIp = payload.substring(indexStart, indexEnd);
+	} else {
+		Serial.println("Error getting public IP address");
+	}
+	http.end();
+}
+
+void scanNetworks() {
+	scan();
+	server.send(200, "text/html", networks);
+}
+
+void scan() {
+	int n = WiFi.scanNetworks();
+	Serial.println("scan done");
+	if (n == 0)
+		Serial.println("no networks found");
+	else {
+		Serial.print(n);
+		Serial.println(" networks found");
+		networks = "";
+		st =
+				"<select name='networks' id='networks' onchange='ssIDChange(this)' style='padding: 14px 20px;text-align:center;'>";
+		for (int i = 0; i < n; ++i) {
+
+			st += "<option value='" + WiFi.SSID(i) + "'>" + WiFi.SSID(i)
+					+ "</option>";
+			networks += WiFi.SSID(i) + ";";
+			delay(10);
+		}
+		st += "</select>";
+
+		Serial.print(networks);
+		delay(100);
+	}
+
+}
+
+void setCredential() {
+	Serial.println("Received in setCredential");
+	String qsid = server.arg("ssid");
+	String qpass = server.arg("pass");
+
+	Serial.println("Value of SSID :");
+	Serial.print(qsid);
+	Serial.println("Value of Password :");
+	Serial.print(qpass);
+
+	if (qsid.length() > 0 && qpass.length() > 0) {
+		Serial.println("clearing EEPROM");
+		for (int i = 0; i < 96; ++i) {
+			EEPROM.write(i, 0);
+		}
+
+		Serial.println("writing EEPROM SSID:");
+		for (int i = 0; i < qsid.length(); ++i) {
+			EEPROM.write(i, qsid[i]);
+			Serial.print("Wrote: ");
+			Serial.print(qsid[i]);
+		}
+		Serial.println("writing EEPROM PASSWORD:");
+		for (int i = 0; i < qpass.length(); ++i) {
+			EEPROM.write(32 + i, qpass[i]);
+			Serial.print("Wrote: ");
+			Serial.print(qpass[i]);
+		}
+		EEPROM.commit();
+		delay(200);
+		ESP.restart();
+	} else {
+		Serial.println("Sending 404");
+	}
+}
+
+void handleRoot() {
+	Serial.println("Received in handleRoot");
+	IPAddress ip = WiFi.softAPIP();
+	String ipStr = String(ip[0]) + '.' + String(ip[1]) + '.' + String(ip[2])
+			+ '.' + String(ip[3]);
+
+	content = "<!DOCTYPE html>";
+	content += "<html>";
+	content += "<head>";
+	content +=
+			"<meta name='viewport' content='width=device-width, initial-scale=1'>";
+	content += "<style>";
+	content += "input[type=text], input[type=password] {";
+	content += "  width: 100%;";
+	content += "  padding: 12px 20px;";
+	content += "  margin: 8px 0;";
+	content += "  display: inline-block;";
+	content += "  border: 1px solid #ccc;";
+	content += "  box-sizing: border-box;";
+	content += "  border-radius: 40px;";
+	content += "}";
+	content += "button {";
+	content += "  background-color: #04AA6D;";
+	content += "  color: white;";
+	content += "  padding: 14px 20px;";
+	content += "  margin: 8px 0;";
+	content += "  border: none;";
+	content += "  cursor: pointer;";
+	content += "  width: 100%;";
+	content += "  border-radius: 40px;";
+	content += "}";
+
+	content += "span.psw {";
+	content += "  float: right;";
+	content += "  padding-top: 16px;";
+	content += "}";
+
+	content += "@media screen and (max-width: 300px) {";
+	content += "  span.psw {";
+	content += "     display: block;";
+	content += "     float: none;";
+	content += "  }";
+	content += "  .cancelbtn {";
+	content += "     width: 100%;";
+	content += "  }";
+	content += "}";
+	content += "</style>";
+	content += "</head>";
+	content +=
+			"<body style='font-family: Arial, Helvetica, sans-serif;background-color: #3b3b3b;'>";
+	content += "<div style='padding-top:15%;padding-bottom:20px'>";
+	content +=
+			"	<h2 style='font-size:24px;text-align:center;color: white;'>SMART IoT APP</h2>";
+	content += "</div>";
+	content +=
+			"<form method='get' action='setCredential' style='border: 3px solid #f1f1f1;border-radius: 40px;'>";
+	content += "  <div style='padding-top:10px;padding-bottom:10px'>";
+	content +=
+			"    <label for='ssid' style='color: white;text-align:center;font-style:bold;padding-left:10%'>Available Networks</label>";
+	content += "<p style='color: white;'>";
+	content += st;
+	content += "</p>";
+	content += "  </div>";
+	content += " <div style='padding: 20px;'>";
+	content +=
+			"    <label for='ssid' style='color: white;'><b>WiFi SSID</b></label>";
+	content +=
+			"    <input type='text' placeholder='Enter SSID' name='ssid' id='ssid' required>";
+	content +=
+			"    <label for='pass' style='color: white;'><b>WiFi Password</b></label>";
+	content +=
+			"    <input type='password' placeholder='Enter Password' name='pass' required>";
+	content += "    <button type='submit'>Register </button>";
+	content += "  </div>";
+	content += "</form>";
+	content += "</body>";
+	content += "<script>";
+	content += "function ssIDChange(obj)";
+	content += "{";
+	content += "	esid = obj.options[obj.selectedIndex].value;";
+	content += "  document.getElementById('ssid').value = esid;";
+	content += "}";
+	content += "</script>";
+	content += "</html>";
+	server.send(200, "text/html", content);
+}
+
+void enableCORS() {
+	server.sendHeader("Access-Control-Allow-Origin", "*");
+	server.sendHeader("Access-Control-Max-Age", "10000");
+	server.sendHeader("Access-Control-Allow-Methods", "POST, GET, OPTIONS");
+	server.sendHeader("Access-Control-Allow-Headers",
+			"Origin, X-Requested-With, Content-Type, Accept, Authorization");
+	server.sendHeader("Connection", "keep-alive");
+}
+
+void sendData() {
+
+	if (WiFi.status() == WL_CONNECTED) {
+		WiFiClient client;
+		HTTPClient http;
+		http.begin(client, smartIoTReadings);
+		http.addHeader("Content-Type", "application/json");
+		String buf;
+		buf += F("{\"MAC\":\"");
+		buf += macAddr;
+		buf += F("\",");
+		buf += F("\"PUB_IP\":\"");
+		buf += pubIp;
+		buf += F("\",");
+
+		for (i = 0; i <= noOfParams; i++) {
+			buf += F("\"");
+			buf += arrayKey[i];
+			buf += F("\":\"");
+			buf += arrayValue[i];
+			buf += F("\",");
+
+		}
+
+		buf += F("\"SETTINGS\":{");
+		buf += F("\"BAT_VMAX\":");
+		buf += String(24, 6);  //Inverter settings
+		buf += F(",");
+
+		buf += F("\"BAT_IMAX\":");
+		buf += String(30, 6);  //Inverter settings
+		buf += F("}}");
+		Serial.println(buf);
+
+		int httpResponseCode = http.POST(buf);
+
+		String payload = "{}";
+
+		if (httpResponseCode > 0) {
+			Serial.print("HTTP Response code: ");
+			Serial.println(httpResponseCode);
+			payload = http.getString();
+			JSONVar settings = JSON.parse(payload);
+			Serial.println("Settings received is ");
+			Serial.println(settings);
+			if (JSON.stringify(settings) != "{}") {
+
+				Serial.println("Retrieving Keys");
+
+				JSONVar keys = settings.keys();
+				JSONVar batIMax = settings[keys[0]];
+				JSONVar batVMax = settings[keys[1]];
+				String curBatImax = JSON.stringify(batIMax);
+				String curBatVmax = JSON.stringify(batVMax);
+				if (curBatImax != prevBatIMax) {
+					Serial.println("Received Bat Imax ");
+
+					Serial.println(curBatImax); // New Settings found. Writing to EPROM
+					prevBatIMax = curBatImax;
+					for (int i = 212; i < prevBatIMax.length(); ++i) {
+						EEPROM.write(i, prevBatIMax[i]);
+					}
+
+				}
+				if (curBatVmax != prevBatVMax) {
+					Serial.println("Received Bat VMax ");
+					Serial.println(curBatVmax); // New Settings found. Writing to EPROM
+					prevBatVMax = curBatVmax;
+					for (int i = 250; i < prevBatVMax.length(); ++i) {
+						EEPROM.write(i, prevBatVMax[i]);
+					}
+
+				}
+			}
+		}
+
+		http.end();  // Free resources
+
+	} else {
+		Serial.println("WiFi Disconnected");
+	}
+	delay(1000);
+
+}
+
+String getValue(String data, char separator, int index) {
+	int found = 0;
+	int strIndex[] = { 0, -1 };
+	int maxIndex = data.length() - 1;
+
+	for (int i = 0; i <= maxIndex && found <= index; i++) {
+		if (data.charAt(i) == separator || i == maxIndex) {
+			found++;
+			strIndex[0] = strIndex[1] + 1;
+			strIndex[1] = (i == maxIndex) ? i + 1 : i;
+		}
+	}
+	return found > index ? data.substring(strIndex[0], strIndex[1]) : "";
+}
+
+void ledBlink() {
+
+	if (testWifi()) {
+		digitalWrite(LED1pin, HIGH);
+		digitalWrite(LED2pin, HIGH);
+	}
+
+	else {
+		digitalWrite(LED1pin, HIGH);
+		digitalWrite(LED2pin, HIGH);
+		delay(100);
+		digitalWrite(LED1pin, LOW);
+		digitalWrite(LED2pin, LOW);
+		delay(100);
+	}
+}
+
+void wifiReconnect() {
+	unsigned long currentMillisReconnect = millis();
+	// if WiFi is down, try reconnecting
+	if ((WiFi.status() != WL_CONNECTED)
+			&& (currentMillisReconnect - prevMillisReconnect
+					>= intervalReconnect)) {
+		Serial.println("Reconnecting to WiFi...");
+		prevMillisReconnect = currentMillisReconnect;
+		readCredentialsAndStartWiFi();
+	}
+}
