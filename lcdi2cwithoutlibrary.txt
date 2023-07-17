@@ -1,0 +1,51 @@
+#include <Wire.h>
+
+#define LCD_ADDRESS 0x27 // I2C address of the LCD module
+
+void lcdCommand(uint8_t command) {
+  Wire.beginTransmission(LCD_ADDRESS);
+  Wire.write(0x00); // Co = 0, Rs = 0
+  Wire.write(command);
+  Wire.endTransmission();
+  delayMicroseconds(50);
+}
+
+void lcdPrint(const char* text) {
+  Wire.beginTransmission(LCD_ADDRESS);
+  Wire.write(0x40); // Co = 0, Rs = 1
+  while (*text) {
+    Wire.write(*text++);
+  }
+  Wire.endTransmission();
+  delayMicroseconds(50);
+}
+
+void lcdInitialize() {
+  Wire.beginTransmission(LCD_ADDRESS);
+  Wire.write(0x00); // Co = 0, Rs = 0
+  Wire.write(0x38); // Function set: 2 lines, 5x8 dots
+  Wire.write(0x0C); // Display control: Display ON, Cursor OFF, Blink OFF
+  Wire.write(0x06); // Entry mode set: Increment, No shift
+  Wire.endTransmission();
+  delay(50);
+}
+
+void setup() {
+  Wire.begin();
+  lcdInitialize();
+  
+  // Print "Hello Dubai" on the first line
+  lcdCommand(0x80); // Set cursor to the beginning of the first line
+  lcdPrint("Hello Dubai");
+  
+  // Print the float value on the second line
+  lcdCommand(0xC0); // Set cursor to the beginning of the second line
+  float value = 25.435;
+  char floatStr[10];
+  dtostrf(value, 7, 3, floatStr); // Convert float to string with 3 decimal places
+  lcdPrint(floatStr);
+}
+
+void loop() {
+  // Your code here
+}
