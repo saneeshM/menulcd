@@ -1,0 +1,110 @@
+// LCD module connections (modify as per your wiring)
+const int RS = 5;   // Register select pin
+const int EN = 18;   // Enable pin
+const int D4 = 19;   // Data pin 4
+const int D5 = 21;   // Data pin 5
+const int D6 = 22;   // Data pin 6
+const int D7 = 23;   // Data pin 7
+
+
+void lcdCommand(uint8_t command) {
+  digitalWrite(RS, LOW); // Set RS to command mode
+  digitalWrite(EN, LOW); // Set EN low
+  
+  // Send higher nibble
+  digitalWrite(D4, (command >> 4) & 0x01);
+  digitalWrite(D5, (command >> 5) & 0x01);
+  digitalWrite(D6, (command >> 6) & 0x01);
+  digitalWrite(D7, (command >> 7) & 0x01);
+  
+  digitalWrite(EN, HIGH); // Set EN high
+  delayMicroseconds(1);
+  digitalWrite(EN, LOW); // Set EN low
+  
+  // Send lower nibble
+  digitalWrite(D4, command & 0x01);
+  digitalWrite(D5, (command >> 1) & 0x01);
+  digitalWrite(D6, (command >> 2) & 0x01);
+  digitalWrite(D7, (command >> 3) & 0x01);
+  
+  digitalWrite(EN, HIGH); // Set EN high
+  delayMicroseconds(1);
+  digitalWrite(EN, LOW); // Set EN low
+  
+  delayMicroseconds(50);
+}
+
+void lcdData(uint8_t data) {
+  digitalWrite(RS, HIGH); // Set RS to data mode
+  digitalWrite(EN, LOW); // Set EN low
+  
+  // Send higher nibble
+  digitalWrite(D4, (data >> 4) & 0x01);
+  digitalWrite(D5, (data >> 5) & 0x01);
+  digitalWrite(D6, (data >> 6) & 0x01);
+  digitalWrite(D7, (data >> 7) & 0x01);
+  
+  digitalWrite(EN, HIGH); // Set EN high
+  delayMicroseconds(1);
+  digitalWrite(EN, LOW); // Set EN low
+  
+  // Send lower nibble
+  digitalWrite(D4, data & 0x01);
+  digitalWrite(D5, (data >> 1) & 0x01);
+  digitalWrite(D6, (data >> 2) & 0x01);
+  digitalWrite(D7, (data >> 3) & 0x01);
+  
+  digitalWrite(EN, HIGH); // Set EN high
+  delayMicroseconds(1);
+  digitalWrite(EN, LOW); // Set EN low
+  
+  delayMicroseconds(50);
+}
+
+void lcdPrint(const char* text) {
+  while (*text) {
+    lcdData(*text++);
+  }
+}
+
+void lcdInitialize() {
+  pinMode(RS, OUTPUT);
+  pinMode(EN, OUTPUT);
+  pinMode(D4, OUTPUT);
+  pinMode(D5, OUTPUT);
+  pinMode(D6, OUTPUT);
+  pinMode(D7, OUTPUT);
+  
+  // Initialize display in 4-bit mode
+  lcdCommand(0x28); // Function set: 2 lines, 5x8 dots
+  lcdCommand(0x08); // Display control: Display OFF, Cursor OFF, Blink OFF
+  lcdCommand(0x01); // Clear display
+  delayMicroseconds(2000);
+  lcdCommand(0x06); // Entry mode set: Increment, No shift
+  lcdCommand(0x0C); // Display control: Display ON, Cursor OFF, Blink OFF
+  delay(50);
+}
+
+void setup() {
+  lcdInitialize();
+  
+  // Print "Hello Dubai" on the first line
+  lcdCommand(0x80); // Set cursor to the beginning of the first line
+  lcdPrint("Hello Dubai");
+  
+  // Print the float value on the second line
+  lcdCommand(0xC0); // Set cursor to the beginning of the second line
+  float floatValue = 25.435;
+  int intValue = 10;
+  char floatStr[10];
+  dtostrf(floatValue, 7, 3, floatStr); // Convert float to string with 3 decimal places
+  lcdPrint(floatStr);
+  lcdPrint(" ");
+  lcdPrint(String(intValue).c_str()); // Convert int to string and print
+  
+  delay(2000);
+}
+
+void loop() {
+  // Your code here
+}
