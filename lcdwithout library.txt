@@ -1,0 +1,108 @@
+#include <Arduino.h>
+
+#define LCD_RS 5
+#define LCD_EN 18
+#define LCD_D4 19
+#define LCD_D5 21
+#define LCD_D6 22
+#define LCD_D7 23
+
+// Function to send 4-bit data/command to LCD
+void lcdWriteNibble(int value, bool rs) {
+  digitalWrite(LCD_RS, rs); // Set RS pin (register select) to control data/command
+
+  digitalWrite(LCD_D4, (value >> 0) & 0x01);
+  digitalWrite(LCD_D5, (value >> 1) & 0x01);
+  digitalWrite(LCD_D6, (value >> 2) & 0x01);
+  digitalWrite(LCD_D7, (value >> 3) & 0x01);
+
+  digitalWrite(LCD_EN, HIGH);
+  delayMicroseconds(1);
+  digitalWrite(LCD_EN, LOW);
+}
+
+// Function to send 8-bit data/command to LCD
+void lcdWriteByte(int value, bool rs) {
+  lcdWriteNibble((value >> 4) & 0x0F, rs); // Send higher nibble
+  lcdWriteNibble(value & 0x0F, rs);        // Send lower nibble
+}
+
+// Function to send a command to the LCD
+void lcdCommand(int command) {
+  lcdWriteByte(command, false);
+  delayMicroseconds(40); // Wait for the command to execute
+}
+
+// Function to send data to the LCD
+void lcdWrite(int data) {
+  lcdWriteByte(data, true);
+  delayMicroseconds(40); // Wait for the data to be written
+}
+
+// Function to initialize the LCD
+void lcdInitialize() {
+  pinMode(LCD_RS, OUTPUT);
+  pinMode(LCD_EN, OUTPUT);
+  pinMode(LCD_D4, OUTPUT);
+  pinMode(LCD_D5, OUTPUT);
+  pinMode(LCD_D6, OUTPUT);
+  pinMode(LCD_D7, OUTPUT);
+
+  // Initialize the LCD
+  delay(50); // Wait for the LCD to power up
+
+  // 4-bit initialization sequence
+  lcdWriteNibble(0x03, false);
+  delayMicroseconds(4500);
+
+  lcdWriteNibble(0x03, false);
+  delayMicroseconds(4500);
+
+  lcdWriteNibble(0x03, false);
+  delayMicroseconds(150);
+
+  lcdWriteNibble(0x02, false);
+
+  // Function Set: Set interface to 4-bit mode, 2 lines, 5x8 font
+  lcdCommand(0x28);
+
+  // Display On/Off Control: Display Off, Cursor Off, Blink Off
+  lcdCommand(0x08);
+
+  // Display Clear
+  lcdCommand(0x01);
+  delayMicroseconds(2000);
+
+  // Entry Mode Set: Increment cursor, No shift
+  lcdCommand(0x06);
+
+  // Display On/Off Control: Display On, Cursor Off, Blink Off
+  lcdCommand(0x0C);
+}
+
+// Function to send a string to the LCD
+void lcdPrint(const char* str) {
+  while (*str) {
+    lcdWrite(*str);
+    str++;
+  }
+}
+void setup() {
+  lcdInitialize();
+  
+  // Print "Hello Dubai" on the first line
+  lcdCommand(0x80); // Set cursor to the beginning of the first line
+  lcdPrint("Hello Dubai");
+  
+  // Print the float value on the second line
+  lcdCommand(0xC0); // Set cursor to the beginning of the second line
+  float value = 25.435;
+  char floatStr[10];
+  snprintf(floatStr, sizeof(floatStr), "%.3f", value); // Convert float to string with 3 decimal places
+  lcdPrint(floatStr);
+}
+
+
+void loop() {
+  // Nothing to do here
+}
