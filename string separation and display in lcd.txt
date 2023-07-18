@@ -1,0 +1,156 @@
+// LCD module connections (modify as per your wiring)
+
+// LCD module connections (modify as per your wiring)
+const int RS = 5;   // Register select pin
+const int EN = 18;   // Enable pin
+const int D4 = 19;   // Data pin 4
+const int D5 = 21;   // Data pin 5
+const int D6 = 22;   // Data pin 6
+const int D7 = 23;   // Data pin 7
+
+void lcdCommand(uint8_t command) {
+  digitalWrite(RS, LOW); // Set RS to command mode
+  digitalWrite(EN, LOW); // Set EN low
+  
+  // Send higher nibble
+  digitalWrite(D4, (command >> 4) & 0x01);
+  digitalWrite(D5, (command >> 5) & 0x01);
+  digitalWrite(D6, (command >> 6) & 0x01);
+  digitalWrite(D7, (command >> 7) & 0x01);
+  
+  digitalWrite(EN, HIGH); // Set EN high
+  delayMicroseconds(1);
+  digitalWrite(EN, LOW); // Set EN low
+  
+  // Send lower nibble
+  digitalWrite(D4, command & 0x01);
+  digitalWrite(D5, (command >> 1) & 0x01);
+  digitalWrite(D6, (command >> 2) & 0x01);
+  digitalWrite(D7, (command >> 3) & 0x01);
+  
+  digitalWrite(EN, HIGH); // Set EN high
+  delayMicroseconds(1);
+  digitalWrite(EN, LOW); // Set EN low
+  
+  delayMicroseconds(50);
+}
+
+void lcdData(uint8_t data) {
+  digitalWrite(RS, HIGH); // Set RS to data mode
+  digitalWrite(EN, LOW); // Set EN low
+  
+  // Send higher nibble
+  digitalWrite(D4, (data >> 4) & 0x01);
+  digitalWrite(D5, (data >> 5) & 0x01);
+  digitalWrite(D6, (data >> 6) & 0x01);
+  digitalWrite(D7, (data >> 7) & 0x01);
+  
+  digitalWrite(EN, HIGH); // Set EN high
+  delayMicroseconds(1);
+  digitalWrite(EN, LOW); // Set EN low
+  
+  // Send lower nibble
+  digitalWrite(D4, data & 0x01);
+  digitalWrite(D5, (data >> 1) & 0x01);
+  digitalWrite(D6, (data >> 2) & 0x01);
+  digitalWrite(D7, (data >> 3) & 0x01);
+  
+  digitalWrite(EN, HIGH); // Set EN high
+  delayMicroseconds(1);
+  digitalWrite(EN, LOW); // Set EN low
+  
+  delayMicroseconds(50);
+}
+
+void lcdPrint(const char* text) {
+  while (*text) {
+    lcdData(*text++);
+  }
+}
+
+void lcdInitialize() {
+  pinMode(RS, OUTPUT);
+  pinMode(EN, OUTPUT);
+  pinMode(D4, OUTPUT);
+  pinMode(D5, OUTPUT);
+  pinMode(D6, OUTPUT);
+  pinMode(D7, OUTPUT);
+  
+  // Initialize display in 4-bit mode
+  lcdCommand(0x28); // Function set: 2 lines, 5x8 dots
+  lcdCommand(0x08); // Display control: Display OFF, Cursor OFF, Blink OFF
+  lcdCommand(0x01); // Clear display
+  delayMicroseconds(2000);
+  lcdCommand(0x06); // Entry mode set: Increment, No shift
+  lcdCommand(0x0C); // Display control: Display ON, Cursor OFF, Blink OFF
+  delay(50);
+}
+
+void lcdSetCursor(uint8_t col, uint8_t row) {
+  uint8_t rowOffsets[] = { 0x00, 0x40 };
+  lcdCommand(0x80 | (col + rowOffsets[row]));
+}
+
+void lcdClear() {
+  lcdCommand(0x01); // Clear display
+  delayMicroseconds(2000);
+}
+
+void lcdPrintParameter(const char* parameterName, const char* parameterValue) {
+  lcdSetCursor(0, 0);
+  lcdPrint(parameterName);
+  
+  lcdSetCursor(0, 1);
+  lcdPrint(parameterValue);
+}
+void displayParameters(const char* parametersString) {
+  const int MAX_PARAMETERS = 10;
+  
+  char parameterName[MAX_PARAMETERS][20];
+  char parameterValue[MAX_PARAMETERS][20];
+  int parameterCount = 0;
+  
+  const char* delimiters = ",:";
+  const char* tokenStart = parametersString;
+  const char* tokenEnd;
+  
+  while (parameterCount < MAX_PARAMETERS && (tokenEnd = strchr(tokenStart, ':')) != NULL) {
+    size_t nameLength = tokenEnd - tokenStart;
+    strncpy(parameterName[parameterCount], tokenStart, nameLength);
+    parameterName[parameterCount][nameLength] = '\0';
+    
+    tokenStart = tokenEnd + 1;
+    tokenEnd = strchr(tokenStart, ',');
+    
+    if (tokenEnd != NULL) {
+      size_t valueLength = tokenEnd - tokenStart;
+      strncpy(parameterValue[parameterCount], tokenStart, valueLength);
+      parameterValue[parameterCount][valueLength] = '\0';
+      
+      tokenStart = tokenEnd + 1;
+      parameterCount++;
+    } else {
+      break;
+    }
+  }
+  
+  lcdClear();
+  
+  for (int i = 0; i < parameterCount; i++) {
+    lcdPrintParameter(parameterName[i], parameterValue[i]);
+    delay(2000); // Delay between parameter display
+    lcdClear();
+  }
+}
+
+void setup() {
+  lcdInitialize();
+  
+  const char* parametersString = "MODEL: GREEN 80A 220C-4L,BATTERY VOLT:13.2 V,SOLAR VOLT:0.3 V,SOLAR WATTS:0 W,SOLAR AMPS:0.0 A,OUTPUT AMPS:0.0 A,SOLAR PEAK:0 W,DAY UNIT:0.0 U,TOTAL UNIT:0.0 U,HEAT:43 C,BATTERY MODE:12 V,SOLAR:OFF,SOLAR CHARGING:OFF,RELAY SWICH:OFF,ABSPN COUNTER:0,RELAY:OFF";
+  
+  displayParameters(parametersString);
+}
+
+void loop() {
+  // Your code here
+}
