@@ -1,0 +1,1263 @@
+
+#include <EEPROM.h>
+//unsigned long buttonPressTime[NUM_BUTTONS];
+unsigned long lastNavigationTime = 0; 
+
+// LCD module connections (modify as per your wiring)
+const int RS = 5;   // Register select pin
+const int EN = 18;   // Enable pin
+const int D4 = 19;   // Data pin 4
+const int D5 = 21;   // Data pin 5
+const int D6 = 22;   // Data pin 6
+const int D7 = 23;   // Data pin 7
+
+const int EEPROM_START_ADDRESS = 10;
+const int passwordLength = 6;
+char enteredPassword[passwordLength];
+char storedPassword[passwordLength];
+unsigned long subMenutimer=0;
+int passwordIndex = 0;
+bool passwordMode = false;
+bool saveParameters = false;
+bool isParameterModified = false;
+bool subMenumode=false;
+bool parameterMode=false;
+bool fastIncrement = false;
+bool fastDecrement = false;
+
+int currentMainMenu = 0;
+int currentSubmenu = -1;
+int currentParameter = 0;
+unsigned long buttonDelayElapsed = 0; // 
+const int BUTTON_PINS[] = {32, 25, 33, 35};
+const int debounceDelay = 50;
+const int selButtonDelay = 300;
+const int fastIncremntDecrementDelay = 3000; // 3 seconds
+const int longPressDelay = 3000;
+const int normalIncrementValue = 1;
+const int fastIncrementvalue = 5;
+const int NUM_BUTTONS = sizeof(BUTTON_PINS) / sizeof(BUTTON_PINS[0]);
+bool buttonState[NUM_BUTTONS];
+bool lastButtonState[NUM_BUTTONS];
+unsigned long buttonPressTime[NUM_BUTTONS];
+bool upButtonPressed = false;
+bool downButtonPressed = false;
+
+
+
+
+const int MAX_MAIN_MENUS = 5;
+const int MAX_SUBMENUS = 5;
+const int MAX_PARAMETERS = 5;
+struct Parameter {
+  const char* name;
+  int value;
+  int minValue;
+  int maxValue;
+  const char* unit;
+};
+
+struct Submenu {
+  const char* name;
+  Parameter parameters[MAX_PARAMETERS];
+  int numParameters;
+};
+
+struct MainMenu {
+  const char* name;
+  Submenu submenus[MAX_SUBMENUS];
+  int numSubmenus;
+};
+
+MainMenu mainMenus[MAX_MAIN_MENUS];
+
+void readPasswordFromEEPROM() {
+  for (int i = 0; i < passwordLength; i++) {
+    storedPassword[i] = EEPROM.read(i);
+  }
+}
+
+void savePasswordToEEPROM() {
+  for (int i = 0; i < passwordLength; i++) {
+    EEPROM.write(i, storedPassword[i]);
+  }
+}
+
+void buttonRead() {
+  for (int i = 0; i < NUM_BUTTONS; i++) {
+    bool currentState = digitalRead(BUTTON_PINS[i]);
+    if (currentState != lastButtonState[i]) {
+      buttonPressTime[i] = millis();
+    }
+    if (millis() - buttonPressTime[i] > debounceDelay) {
+      buttonState[i] = currentState;
+    }
+    lastButtonState[i] = currentState;
+  }
+
+  // Handle button actions
+  if (buttonState[0] == HIGH) {
+    // Up button is pressed
+    if (!upButtonPressed) {
+      upButtonPressed = true;
+      buttonPressTime[0] = millis(); // Start timer for button press
+    } else if (millis() - buttonPressTime[0] > fastIncremntDecrementDelay) {
+      // Generate fast increment flag
+      fastIncrement = true;
+    }
+  } else {
+    // Up button is released
+    if (upButtonPressed) {
+      upButtonPressed = false;
+      fastIncrement = false; // Reset fast increment flag
+    }
+  }
+
+  if (buttonState[1] == HIGH) {
+    // Down button is pressed
+    if (!downButtonPressed) {
+      downButtonPressed = true;
+      buttonPressTime[1] = millis(); // Start timer for button press
+    } else if (millis() - buttonPressTime[1] > fastIncremntDecrementDelay) {
+      // Generate fast decrement flag
+      fastDecrement = true;
+    }
+  } else {
+    // Down button is released
+    if (downButtonPressed) {
+      downButtonPressed = false;
+      fastDecrement = false; // Reset fast decrement flag
+    }
+  }
+}
+
+
+
+void setup() {
+   lcdInit();
+  EEPROM.begin(512); //Initializing EEPROM
+  Serial.begin(115200);
+ 
+ lcdPrint("Menu System");
+strcpy(storedPassword, "123456");
+  for (int i = 0; i < NUM_BUTTONS; i++) {
+    pinMode(BUTTON_PINS[i], INPUT_PULLUP);
+    buttonState[i] = digitalRead(BUTTON_PINS[i]);
+    lastButtonState[i] = buttonState[i];
+    buttonPressTime[i] = 0;
+  }
+readParametersFromEEPROM();
+  initializeMenus();
+  saveParametersToEEPROM();
+  delay(100);
+  readPasswordFromEEPROM();
+
+}
+
+void initializeMenus() {
+  // Main Menu 1
+  mainMenus[0] = MainMenu{
+    "CARS",
+    {
+      {
+        "CAMRY",
+        {
+          {
+            "SPEED", 0, 0, 260, "KMPH"
+          },
+          {
+            "TYRE SIZE", 0, 0, 2000, "mm"
+          },
+          {
+            "PRESSURE", 0, 0, 200, "PSI"
+          },
+          {
+            "MILEAGE", 0, 0, 100, "KM/L"
+          },
+          {
+            "ENGINE", 0, 0, 5500, "CC"
+          }
+        }
+      },
+      {
+        "CHEVROLET",
+        {
+          {
+            "SPEED", 0, 0, 260, "KMPH"
+          },
+          {
+            "TYRE SIZE", 0, 0, 2000, "mm"
+          },
+          {
+            "PRESSURE", 0, 0, 200, "PSI"
+          },
+          {
+            "MILEAGE", 0, 0, 100, "KM/L"
+          },
+          {
+            "ENGINE", 0, 0, 5500, "CC"
+          }
+        }
+      },
+      {
+        "JEEP",
+        {
+          {
+            "SPEED", 0, 0, 260, "KMPH"
+          },
+          {
+            "TYRE SIZE", 0, 0, 2000, "mm"
+          },
+          {
+            "PRESSURE", 0, 0, 200, "PSI"
+          },
+          {
+            "MILEAGE", 0, 0, 100, "KM/L"
+          },
+          {
+            "ENGINE", 0, 0, 5500, "CC"
+          }
+        }
+      },
+      {
+        "NISSAN",
+        {
+          {
+            "SPEED", 0, 0, 260, "KMPH"
+          },
+          {
+            "TYRE SIZE", 0, 0, 2000, "mm"
+          },
+          {
+            "PRESSURE", 0, 0, 200, "PSI"
+          },
+          {
+            "MILEAGE", 0, 0, 100, "KM/L"
+          },
+          {
+            "ENGINE", 0, 0, 5500, "CC"
+          }
+        }
+      }
+    },
+    4
+  };
+
+  // Main Menu 2
+  mainMenus[1] = MainMenu{
+    "TRUCK",
+    {
+      {
+        "HINO",
+        {
+          {
+            "SPEED", 0, 0, 260, "KMPH"
+          },
+          {
+            "TYRE SIZE", 0, 0, 2000, "mm"
+          },
+          {
+            "PRESSURE", 0, 0, 200, "PSI"
+          },
+          {
+            "MILEAGE", 0, 0, 100, "KM/L"
+          },
+          {
+            "ENGINE", 0, 0, 5500, "CC"
+          }
+        }
+      },
+      {
+        "MAN",
+        {
+          {
+            "SPEED", 0, 0, 260, "KMPH"
+          },
+          {
+            "TYRE SIZE", 0, 0, 2000, "mm"
+          },
+          {
+            "PRESSURE", 0, 0, 200, "PSI"
+          },
+          {
+            "MILEAGE", 0, 0, 100, "KM/L"
+          },
+          {
+            "ENGINE", 0, 0, 5500, "CC"
+          }
+        }
+      },
+      {
+        "MITSUBISHI",
+        {
+          {
+            "SPEED", 0, 0, 260, "KMPH"
+          },
+          {
+            "TYRE SIZE", 0, 0, 2000, "mm"
+          },
+          {
+            "PRESSURE", 0, 0, 200, "PSI"
+          },
+          {
+            "MILEAGE", 0, 0, 100, "KM/L"
+          },
+          {
+            "ENGINE", 0, 0, 5500, "CC"
+          }
+        }
+      },
+      {
+        "SCANIA",
+        {
+          {
+            "SPEED", 0, 0, 260, "KMPH"
+          },
+          {
+            "TYRE SIZE", 0, 0, 2000, "mm"
+          },
+          {
+            "PRESSURE", 0, 0, 200, "PSI"
+          },
+          {
+            "MILEAGE", 0, 0, 100, "KM/L"
+          },
+          {
+            "ENGINE", 0, 0, 5500, "CC"
+          }
+        }
+      }
+    },
+    4
+  };
+
+  // Main Menu 3
+  mainMenus[2] = MainMenu{
+    "FORKLIFTS",
+    {
+      {
+        "TOYOTA",
+        {
+          {
+            "SPEED", 0, 0, 260, "KMPH"
+          },
+          {
+            "TYRE SIZE", 0, 0, 2000, "mm"
+          },
+          {
+            "PRESSURE", 0, 0, 200, "PSI"
+          },
+          {
+            "MILEAGE", 0, 0, 100, "KM/L"
+          },
+          {
+            "ENGINE", 0, 0, 5500, "CC"
+          }
+        }
+      },
+      {
+        "KION",
+        {
+          {
+            "SPEED", 0, 0, 260, "KMPH"
+          },
+          {
+            "TYRE SIZE", 0, 0, 2000, "mm"
+          },
+          {
+            "PRESSURE", 0, 0, 200, "PSI"
+          },
+          {
+            "MILEAGE", 0, 0, 100, "KM/L"
+          },
+          {
+            "ENGINE", 0, 0, 5500, "CC"
+          }
+        }
+      },
+      {
+        "CROWN",
+        {
+          {
+            "SPEED", 0, 0, 260, "KMPH"
+          },
+          {
+            "TYRE SIZE", 0, 0, 2000, "mm"
+          },
+          {
+            "PRESSURE", 0, 0, 200, "PSI"
+          },
+          {
+            "MILEAGE", 0, 0, 100, "KM/L"
+          },
+          {
+            "ENGINE", 0, 0, 5500, "CC"
+          }
+        }
+      },
+      {
+        "CATERPILLAR",
+        {
+          {
+            "SPEED", 0, 0, 260, "KMPH"
+          },
+          {
+            "TYRE SIZE", 0, 0, 2000, "mm"
+          },
+          {
+            "PRESSURE", 0, 0, 200, "PSI"
+          },
+          {
+            "MILEAGE", 0, 0, 100, "KM/L"
+          },
+          {
+            "ENGINE", 0, 0, 5500, "CC"
+          }
+        }
+      }
+    },
+    4
+  };
+
+  // Main Menu 4
+  mainMenus[3] = MainMenu{
+    "BUSES",
+    {
+      {
+        "TATA",
+        {
+          {
+            "SPEED", 0, 0, 260, "KMPH"
+          },
+          {
+            "TYRE SIZE", 0, 0, 2000, "mm"
+          },
+          {
+            "PRESSURE", 0, 0, 200, "PSI"
+          },
+          {
+            "MILEAGE", 0, 0, 100, "KM/L"
+          },
+          {
+            "ENGINE", 0, 0, 5500, "CC"
+          }
+        }
+      },
+      {
+        "VOLVO",
+        {
+          {
+            "SPEED", 0, 0, 260, "KMPH"
+          },
+          {
+            "TYRE SIZE", 0, 0, 2000, "mm"
+          },
+          {
+            "PRESSURE", 0, 0, 200, "PSI"
+          },
+          {
+            "MILEAGE", 0, 0, 100, "KM/L"
+          },
+          {
+            "ENGINE", 0, 0, 5500, "CC"
+          }
+        }
+      },
+      {
+        "BENZ",
+        {
+          {
+            "SPEED", 0, 0, 260, "KMPH"
+          },
+          {
+            "TYRE SIZE", 0, 0, 2000, "mm"
+          },
+          {
+            "PRESSURE", 0, 0, 200, "PSI"
+          },
+          {
+            "MILEAGE", 0, 0, 100, "KM/L"
+          },
+          {
+            "ENGINE", 0, 0, 5500, "CC"
+          }
+        }
+      },
+      {
+        "ASHOK LEYLAND",
+        {
+          {
+            "SPEED", 0, 0, 260, "KMPH"
+          },
+          {
+            "TYRE SIZE", 0, 0, 2000, "mm"
+          },
+          {
+            "PRESSURE", 0, 0, 200, "PSI"
+          },
+          {
+            "MILEAGE", 0, 0, 100, "KM/L"
+          },
+          {
+            "ENGINE", 0, 0, 5500, "CC"
+          }
+        }
+      }
+    },
+    4
+  };
+
+  // Main Menu 5
+  mainMenus[4] = MainMenu{
+    "AIR BUS",
+    {
+      {
+        "BOEING",
+        {
+          {
+            "RANGE", 0, 0, 5260, "KM"
+          },
+          {
+            "SEATING", 0, 0, 500, "mm"
+          },
+          {
+            "LENGTH", 0, 0, 200, "MTR"
+          },
+          {
+            "WING SPAN", 0, 0, 100, "MTR"
+          },
+          {
+            "WING AREA", 0, 0, 500, "SQMTR"
+          },
+         
+        }
+      },
+      {
+        "LEONARDO",
+        {
+          {
+            "RANGE", 0, 0, 5260, "KM"
+          },
+          {
+            "SEATING", 0, 0, 500, "mm"
+          },
+          {
+            "LENGTH", 0, 0, 200, "MTR"
+          },
+          {
+            "WING SPAN", 0, 0, 100, "MTR"
+          },
+          {
+            "WING AREA", 0, 0, 500, "SQMTR"
+          },
+          
+        }
+      },
+      {
+        "SAFRAN",
+        {
+          {
+            "RANGE", 0, 0, 5260, "KM"
+          },
+          {
+            "SEATING", 0, 0, 500, "mm"
+          },
+          {
+            "LENGTH", 0, 0, 200, "MTR"
+          },
+          {
+            "WING SPAN", 0, 0, 100, "MTR"
+          },
+          {
+            "WING AREA", 0, 0, 500, "SQMTR"
+          },
+         
+        }
+      },
+      {
+        "Northrop",
+        {
+          {
+            "RANGE", 0, 0, 5260, "KM"
+          },
+          {
+            "SEATING", 0, 0, 500, "mm"
+          },
+          {
+            "LENGTH", 0, 0, 200, "MTR"
+          },
+          {
+            "WING SPAN", 0, 0, 100, "MTR"
+          },
+          {
+            "WING AREA", 0, 0, 500, "SQMTR"
+          },
+          
+        }
+      },
+      {
+        "GE",
+        {
+          {
+            "RANGE", 0, 0, 5260, "KM"
+          },
+          {
+            "SEATING", 0, 0, 500, "mm"
+          },
+          {
+            "LENGTH", 0, 0, 200, "MTR"
+          },
+          {
+            "WING SPAN", 0, 0, 100, "MTR"
+          },
+          {
+            "WING AREA", 0, 0, 500, "SQMTR"
+          },
+          
+        }
+      }
+    },
+    5
+  };
+}
+
+void handleMainMenuNavigation() {
+    Serial.print("main menu loop ");
+  static unsigned long lastNavigationTime = 0;
+displayMainMenu(); 
+  if (buttonState[0] == HIGH && !parameterMode && !subMenumode && millis() - lastNavigationTime > selButtonDelay) {
+    currentMainMenu = (currentMainMenu + MAX_MAIN_MENUS - 1) % MAX_MAIN_MENUS;
+    displayMainMenu();  Serial.print("button 0 main ");
+    lastNavigationTime = millis();
+  }
+
+  if (buttonState[1] == HIGH && !parameterMode && !subMenumode && millis() - lastNavigationTime > selButtonDelay) {
+    currentMainMenu = (currentMainMenu + 1) % MAX_MAIN_MENUS;
+    displayMainMenu();  Serial.print("button 1 main ");
+    lastNavigationTime = millis();
+  }
+
+  if (buttonState[2] == HIGH && millis() - lastNavigationTime > selButtonDelay) {
+    if (subMenumode && !parameterMode&&subMenutimer>1000) {
+      currentParameter = 0; // Reset the current parameter to the first one
+      parameterMode = true; // Enter parameter mode
+      displayParameter();
+    }
+     else if (!subMenumode && !parameterMode) {
+      subMenumode = true; // Enter submenu mode
+      currentSubmenu = 0;
+      displaySubmenu();
+      delay(selButtonDelay); // Introduce a delay to display the submenu before transitioning to parameter mode
+    }
+    lastNavigationTime = millis();
+  }
+
+  if (buttonState[3] == HIGH && millis() - lastNavigationTime > selButtonDelay) {
+    if (parameterMode) {
+      parameterMode = false; // Exit parameter mode
+      displaySubmenu();
+    }
+     else if (subMenumode) {
+      if(subMenutimer>1000){
+      //subMenumode = false; // Exit submenu mode
+      currentSubmenu = -1;
+      displayMainMenu();
+    }}
+    lastNavigationTime = millis();
+  }
+}
+
+void handleSubmenuNavigation() 
+{
+
+    displaySubmenu();
+  //Serial.println("Submenu loop");
+  static unsigned long lastNavigationTime = 0;
+  unsigned long currentMillis = millis();
+
+            if (!parameterMode && subMenumode) 
+            {
+              if (buttonState[0] == HIGH && currentMillis - lastNavigationTime > selButtonDelay) {
+                currentSubmenu = (currentSubmenu - 1 + mainMenus[currentMainMenu].numSubmenus) % mainMenus[currentMainMenu].numSubmenus;
+                lastNavigationTime = currentMillis; Serial.print("button 0 sub ");
+                displaySubmenu(); // Update LCD with new submenu information
+              }
+
+              if (buttonState[1] == HIGH && currentMillis - lastNavigationTime > selButtonDelay) {
+                currentSubmenu = (currentSubmenu + 1) % mainMenus[currentMainMenu].numSubmenus;
+                lastNavigationTime = currentMillis;
+                displaySubmenu(); // Update LCD with new submenu information
+                Serial.print("button 1 sub ");
+              }
+
+              if (buttonState[2] == HIGH && currentMillis - lastNavigationTime > selButtonDelay) {
+                if (subMenutimer>1000)
+                {
+                currentParameter = 0; // Reset the current parameter to the first one
+
+
+                parameterMode = true; // Enter parameter mode
+                displayParameter(); // Update LCD with parameter information
+                Serial.print("button 2 sub ");
+              }}
+
+              if (buttonState[3] == HIGH && currentMillis - lastNavigationTime > selButtonDelay)
+                      {
+
+                          if(subMenutimer>100){
+                                    subMenumode = false;
+                                    currentSubmenu = -1;
+                                    displayMainMenu(); // Update LCD with main menu information
+                                      }
+                      }
+          }
+}
+
+/*
+void handleSubmenuNavigation() {   Serial.print("sub menu loop ");
+  static unsigned long lastNavigationTime = 0;
+
+  if (buttonState[0] == HIGH && !parameterMode && subMenumode && millis() - lastNavigationTime > selButtonDelay) {
+    currentSubmenu = (currentSubmenu - 1 + mainMenus[currentMainMenu].numSubmenus) % mainMenus[currentMainMenu].numSubmenus;
+    displaySubmenu();
+    lastNavigationTime = millis();
+  }
+
+  if (buttonState[1] == HIGH && !parameterMode && subMenumode && millis() - lastNavigationTime > selButtonDelay) {
+    currentSubmenu = (currentSubmenu + 1) % mainMenus[currentMainMenu].numSubmenus;
+    displaySubmenu();
+    lastNavigationTime = millis();
+  }
+
+  if (buttonState[2] == HIGH && !parameterMode && subMenumode && millis() - lastNavigationTime > selButtonDelay) {
+    currentParameter = 0; // Reset the current parameter to the first one
+    parameterMode = true; // Enter parameter mode
+    displayParameter();
+    lastNavigationTime = millis();
+  }
+
+  if (buttonState[3] == HIGH && !parameterMode && subMenumode && millis() - lastNavigationTime > selButtonDelay) {
+    subMenumode = false;
+    currentSubmenu = -1;
+    displayMainMenu();
+    lastNavigationTime = millis();
+  }
+}*/
+
+void handleParameterModification() {
+ // Serial.print("para modi loop ");
+  static unsigned long lastModificationTime = 0;
+  static bool isSelUpPressed = false;
+  static unsigned long selUpPressStartTime = 0;
+  static bool saveParametersConfirmation = false;
+
+  if (buttonState[0] == HIGH && parameterMode && subMenumode && millis() - lastModificationTime > selButtonDelay) {
+    Submenu& submenu = mainMenus[currentMainMenu].submenus[currentSubmenu];
+    incrementParameter(submenu.parameters[currentParameter]);
+    displayParameter();
+    lastModificationTime = millis();
+  }
+
+  if (buttonState[1] == HIGH && parameterMode && subMenumode && millis() - lastModificationTime > selButtonDelay) {
+    Submenu& submenu = mainMenus[currentMainMenu].submenus[currentSubmenu];
+    decrementParameter(submenu.parameters[currentParameter]);
+    displayParameter();
+    lastModificationTime = millis();
+  }
+
+  if (buttonState[2] == HIGH && !isParameterModified && parameterMode && subMenumode && millis() - lastModificationTime > selButtonDelay) {
+    //isParameterModified = true; // Set the parameter as modified
+    Serial.print("para button 2 ");
+    //lcdClear();
+   //lcdPrint("save parameters?");
+    lastModificationTime = millis();
+    isSelUpPressed = false;
+    selUpPressStartTime = 0;
+    saveParametersConfirmation = false;
+  }
+
+
+  if (buttonState[3] == HIGH && parameterMode && subMenumode && millis() - lastModificationTime > selButtonDelay) {
+
+{
+  if ( parameterMode&&subMenumode)
+
+ {parameterMode=0;}
+
+ else if( subMenumode&&subMenutimer>1000){ subMenumode=0; Serial.print("TIMER1000 "); }
+
+/*
+    if (isParameterModified && saveParametersConfirmation) {
+      // Go to password entry function to confirm saving parameters
+      lcdClear();
+     lcdPrint("Enter Password:");
+      // Additional code to handle password entry
+      passwordMode = true;
+      parameterMode = false; // Exit parameter mode
+    } else {
+      // Go back to parent submenu
+      subMenumode = false;
+      currentSubmenu = -1;
+      displayMainMenu();
+      parameterMode = false; // Exit parameter mode
+      delay(1000);
+    }*/
+  }
+
+  if (buttonState[2] == HIGH && buttonState[0] == HIGH && millis() - selUpPressStartTime >= fastIncremntDecrementDelay) {
+    // Sel and Up buttons pressed together for 2 seconds
+    isSelUpPressed = true;
+  }
+
+  if (buttonState[2] == LOW || buttonState[0] == LOW) {
+    // Either Sel or Up button released
+    selUpPressStartTime = 0;
+    isSelUpPressed = false;
+  }
+
+  if (buttonState[2] == HIGH && buttonState[0] == HIGH && !isSelUpPressed && selUpPressStartTime == 0) {
+    // Sel and Up buttons pressed simultaneously, start the timer
+    selUpPressStartTime = millis();
+  }
+
+  if (isSelUpPressed && millis() - selUpPressStartTime >= fastIncremntDecrementDelay) {
+    // Sel and Up buttons pressed together for 2 seconds, ask to save parameters
+    isSelUpPressed = false;
+    isParameterModified = true; // Set the parameter as modified
+    saveParametersConfirmation = true; // Set the save parameters confirmation flag
+    lcdClear();
+   lcdPrint("Save parameters?");
+    lcdSetCursor(0, 1);
+   lcdPrint("Y: Yes  N: No");
+    lastModificationTime = millis();
+  } else if (buttonState[2] == HIGH && !isSelUpPressed && millis() - lastModificationTime > selButtonDelay) {
+    // Sel button pressed alone, go back to parent submenu
+    subMenumode = false;
+    currentSubmenu = -1;
+    displayMainMenu();
+    parameterMode = false; // Exit parameter mode
+  }
+
+  if (isParameterModified && saveParametersConfirmation) {
+    if (buttonState[0] == HIGH) {
+      // Select "Yes" to save parameters
+      // Handle saving parameters
+      saveParametersToEEPROM();
+      isParameterModified = false; // Reset the modification flag
+      saveParametersConfirmation = false; // Reset the save parameters confirmation flag
+      lcdClear();
+     lcdPrint("Parameters saved");
+      lastModificationTime = millis();
+    }
+
+    if (buttonState[1] == HIGH) {
+      // Select "No" to cancel saving parameters
+      isParameterModified = false; // Reset the modification flag
+      saveParametersConfirmation = false; // Reset the save parameters confirmation flag
+      lcdClear();
+      displayParameter();
+      lastModificationTime = millis();
+    }
+  }
+}
+
+/*
+  if (isParameterModified && saveParameters) {
+    lcdSetCursor(0, 0);
+   lcdPrint("Save parameters?");
+   lcdPrint("              ");
+     lcdSetCursor(0, 1);
+    lcdPrint("              ");
+  }*/
+  
+}
+
+ 
+void loop() {
+  buttonRead();
+  if (subMenumode==1&&parameterMode==0){ subMenutimer=subMenutimer+1;}
+if (subMenumode==0){ subMenutimer=0;}
+if (parameterMode==1){ subMenutimer=0;}
+  if (passwordMode && saveParameters) {
+    // Handle password entry
+    // ...
+  } else {
+    if (!subMenumode && !parameterMode) {
+      //displayMainMenu();
+      handleMainMenuNavigation();
+    } else if (subMenumode && !parameterMode) {
+      //displaySubmenu();
+      handleSubmenuNavigation();
+    } else {
+      displayParameter();
+
+      
+      handleParameterModification();
+    }
+  }
+
+  // Serial printing of button states and mode indicators with a delay
+  static unsigned long lastSerialPrintTime = 0;
+  unsigned long currentTime = millis();
+  if (currentTime - lastSerialPrintTime >= 200) {
+    Serial.print("Up Button: ");
+    Serial.print(buttonState[0]);
+    Serial.print("\tDown Button: ");
+    Serial.print(buttonState[1]);
+    Serial.print("\tSelect Button: ");
+    Serial.print(buttonState[2]);
+    Serial.print("\tBack Button: ");
+    Serial.print(buttonState[3]);
+    Serial.print("\tParameter Mode: ");
+    Serial.print(parameterMode);
+    Serial.print("\tSubmenu Mode: ");
+    Serial.println(subMenumode);
+        Serial.println(subMenutimer);
+    lastSerialPrintTime = currentTime;
+
+
+   // readParametersFromEEPROM();
+  }        
+  // Other code and delay as needed
+}
+
+void handleParameter() {
+      Serial.print("handle parameter loop ");
+  if (buttonState[0] == HIGH) {
+    Submenu& submenu = mainMenus[currentMainMenu].submenus[currentSubmenu];
+    incrementParameter(submenu.parameters[currentParameter]);
+    displayParameter();
+  }
+
+  if (buttonState[1] == HIGH) {
+    Submenu& submenu = mainMenus[currentMainMenu].submenus[currentSubmenu];
+    decrementParameter(submenu.parameters[currentParameter]);
+    displayParameter();
+  }
+
+  if (buttonState[2] == HIGH) {
+    if (!isParameterModified) {
+      subMenumode = true; // Go back to submenu mode
+      displaySubmenu();
+    } else {
+      // Prompt to save parameters
+      saveParameters = true;
+      displayParameter();
+    }
+  }
+
+  if (buttonState[3] == HIGH) {
+    if (!isParameterModified) {
+      subMenumode = true; // Go back to submenu mode
+      displaySubmenu();
+    } else if (saveParameters) {
+      // Cancel saving parameters
+      saveParameters = false;
+      displayParameter();
+    }
+  }
+}
+
+
+void incrementParameter(Parameter& parameter) {
+
+        Serial.print("increment parameter loop ");
+  if (parameter.value < parameter.maxValue) {
+   parameter.value += fastIncrement ? fastIncrementvalue : normalIncrementValue;
+   isParameterModified=true;
+  }
+  delay(200); // Delay to prevent rapid navigation
+}
+
+void decrementParameter(Parameter& parameter) {
+        Serial.print("decremnt parameter loop ");
+  if (parameter.value > parameter.minValue) {
+    parameter.value -= fastDecrement ? fastIncrementvalue : normalIncrementValue;
+    isParameterModified=true;
+  }
+  delay(200); // Delay to prevent rapid navigation
+}
+/*
+void handlePasswordEntry() {
+  if (passwordMode) {
+    // Handle password entry
+    if (buttonState[0] == HIGH) {
+      // Increment password digit
+      enteredPassword[passwordIndex] = (enteredPassword[passwordIndex] + 1 - '0') % 10 + '0';
+      lcdSetCursor(passwordIndex, 1);
+     lcdPrint(enteredPassword[passwordIndex]);
+     
+    }
+
+    if (buttonState[1] == HIGH) {
+      // Decrement password digit
+      enteredPassword[passwordIndex] = (enteredPassword[passwordIndex] - 1 - '0' + 10) % 10 + '0';
+      lcdSetCursor(passwordIndex, 1);
+     lcdPrint(enteredPassword[passwordIndex]);
+      
+    }
+
+    if (buttonState[2] == HIGH) {
+      // Move to the next digit
+      passwordIndex++;
+      lcdSetCursor(passwordIndex, 1);
+     
+    }
+
+    if (buttonState[3] == HIGH) {
+      // Move to the previous digit
+      passwordIndex--;
+      lcdSetCursor(passwordIndex, 1);
+      
+    }
+
+    // Wrap around the password index
+    passwordIndex = (passwordIndex + passwordLength) % passwordLength;
+
+    // Check if all digits are entered
+    if (passwordIndex == 0) {
+      // Compare entered password with stored password
+      bool passwordMatched = true;
+      for (int i = 0; i < passwordLength; i++) {
+        if (enteredPassword[i] != storedPassword[i]) {
+          passwordMatched = false;
+          break;
+        }
+      }
+
+      // Save parameters if passwords match
+      if (passwordMatched) {
+        saveParametersToEEPROM();
+        // Reset entered password
+        memset(enteredPassword, 0, sizeof(enteredPassword));
+      }
+
+      // Clear LCD and exit password mode
+      lcdClear();
+      passwordMode = false;
+    }
+  }
+}*/
+
+/*
+
+void readParametersFromEEPROM() {
+  int eepromAddress = EEPROM_START_ADDRESS;
+  
+  for (int mainMenuIndex = 0; mainMenuIndex < MAX_MAIN_MENUS; mainMenuIndex++) {
+    MainMenu& mainMenu = mainMenus[mainMenuIndex];
+    
+    for (int submenuIndex = 0; submenuIndex < mainMenu.numSubmenus; submenuIndex++) {
+      Submenu& submenu = mainMenu.submenus[submenuIndex];
+      
+      for (int parameterIndex = 0; parameterIndex < submenu.numParameters; parameterIndex++) {
+        Parameter& parameter = submenu.parameters[parameterIndex];
+        
+        // Read parameter value from EEPROM
+        parameter.value = EEPROM.read(eepromAddress);
+        
+        // Increment EEPROM address
+        eepromAddress += sizeof(int);
+      }
+    }
+  }
+}
+*/
+
+void readParametersFromEEPROM() {
+  
+  int eepromAddress = EEPROM_START_ADDRESS;
+  
+  for (int mainMenuIndex = 0; mainMenuIndex < MAX_MAIN_MENUS; mainMenuIndex++) {
+    MainMenu& mainMenu = mainMenus[mainMenuIndex];
+    
+    for (int submenuIndex = 0; submenuIndex < mainMenu.numSubmenus; submenuIndex++) {
+      Submenu& submenu = mainMenu.submenus[submenuIndex];
+      
+      for (int parameterIndex = 0; parameterIndex < submenu.numParameters; parameterIndex++) {
+        Parameter& parameter = submenu.parameters[parameterIndex];
+        
+        // Read parameter value from EEPROM
+        parameter.value = EEPROM.read(eepromAddress);
+        delay(5);
+        // Print parameter information
+        Serial.print("MainMenu Index: ");
+        Serial.print(mainMenuIndex);
+        Serial.print(", Submenu Index: ");
+        Serial.print(submenuIndex);
+        Serial.print(", Parameter Index: ");
+        Serial.print(parameterIndex);
+        Serial.print(", Parameter Value: ");
+        Serial.println(parameter.value);
+        
+        // Increment EEPROM address
+        eepromAddress += sizeof(int);
+      }
+    }
+  }
+}
+
+void saveParametersToEEPROM() {
+
+  // Manually specify parameter values
+  mainMenus[0].submenus[0].parameters[0].value = 10;
+  mainMenus[0].submenus[0].parameters[1].value = 20;
+  mainMenus[0].submenus[0].parameters[2].value = 30;
+  mainMenus[0].submenus[0].parameters[3].value = 40;
+  mainMenus[0].submenus[0].parameters[4].value = 40;
+  
+  mainMenus[0].submenus[1].parameters[0].value = 50;
+  mainMenus[0].submenus[1].parameters[1].value = 60;
+  mainMenus[0].submenus[1].parameters[2].value = 70;
+  mainMenus[0].submenus[1].parameters[3].value = 80;
+  mainMenus[0].submenus[1].parameters[4].value = 80;
+
+  mainMenus[0].submenus[2].parameters[0].value = 50;
+  mainMenus[0].submenus[2].parameters[1].value = 60;
+  mainMenus[0].submenus[2].parameters[2].value = 70;
+  mainMenus[0].submenus[2].parameters[3].value = 80;
+  mainMenus[0].submenus[2].parameters[4].value = 80;
+
+  mainMenus[0].submenus[3].parameters[0].value = 50;
+  mainMenus[0].submenus[3].parameters[1].value = 60;
+  mainMenus[0].submenus[3].parameters[2].value = 70;
+  mainMenus[0].submenus[3].parameters[3].value = 80;
+  mainMenus[0].submenus[3].parameters[4].value = 80;
+
+ 
+
+
+  // Manually specify parameter values
+  mainMenus[1].submenus[0].parameters[0].value = 10;
+  mainMenus[1].submenus[0].parameters[1].value = 20;
+  mainMenus[1].submenus[0].parameters[2].value = 30;
+  mainMenus[1].submenus[0].parameters[3].value = 40;
+  mainMenus[1].submenus[0].parameters[4].value = 40;
+  
+  mainMenus[1].submenus[1].parameters[0].value = 50;
+  mainMenus[1].submenus[1].parameters[1].value = 60;
+  mainMenus[1].submenus[1].parameters[2].value = 70;
+  mainMenus[1].submenus[1].parameters[3].value = 80;
+  mainMenus[1].submenus[1].parameters[4].value = 80;
+
+  mainMenus[1].submenus[2].parameters[0].value = 50;
+  mainMenus[1].submenus[2].parameters[1].value = 60;
+  mainMenus[1].submenus[2].parameters[2].value = 70;
+  mainMenus[1].submenus[2].parameters[3].value = 80;
+  mainMenus[1].submenus[2].parameters[4].value = 80;
+
+  mainMenus[1].submenus[3].parameters[0].value = 50;
+  mainMenus[1].submenus[3].parameters[1].value = 60;
+  mainMenus[1].submenus[3].parameters[2].value = 70;
+  mainMenus[1].submenus[3].parameters[3].value = 80;
+  mainMenus[1].submenus[3].parameters[4].value = 80;
+
+  
+
+  // Manually specify parameter values
+  mainMenus[2].submenus[0].parameters[0].value = 10;
+  mainMenus[2].submenus[0].parameters[1].value = 20;
+  mainMenus[2].submenus[0].parameters[2].value = 30;
+  mainMenus[2].submenus[0].parameters[3].value = 40;
+  mainMenus[2].submenus[0].parameters[4].value = 40;
+  
+  mainMenus[2].submenus[1].parameters[0].value = 50;
+  mainMenus[2].submenus[1].parameters[1].value = 60;
+  mainMenus[2].submenus[1].parameters[2].value = 70;
+  mainMenus[2].submenus[1].parameters[3].value = 80;
+  mainMenus[2].submenus[1].parameters[4].value = 80;
+
+  mainMenus[2].submenus[2].parameters[0].value = 50;
+  mainMenus[2].submenus[2].parameters[1].value = 60;
+  mainMenus[2].submenus[2].parameters[2].value = 70;
+  mainMenus[2].submenus[2].parameters[3].value = 80;
+  mainMenus[2].submenus[2].parameters[4].value = 80;
+
+  mainMenus[2].submenus[3].parameters[0].value = 50;
+  mainMenus[2].submenus[3].parameters[1].value = 60;
+  mainMenus[2].submenus[3].parameters[2].value = 70;
+  mainMenus[2].submenus[3].parameters[3].value = 80;
+  mainMenus[2].submenus[3].parameters[4].value = 80;
+
+ 
+
+  // Manually specify parameter values
+  mainMenus[3].submenus[0].parameters[0].value = 10;
+  mainMenus[3].submenus[0].parameters[1].value = 20;
+  mainMenus[3].submenus[0].parameters[2].value = 30;
+  mainMenus[3].submenus[0].parameters[3].value = 40;
+  mainMenus[3].submenus[0].parameters[4].value = 40;
+  
+  mainMenus[3].submenus[1].parameters[0].value = 50;
+  mainMenus[3].submenus[1].parameters[1].value = 60;
+  mainMenus[3].submenus[1].parameters[2].value = 70;
+  mainMenus[3].submenus[1].parameters[3].value = 80;
+  mainMenus[3].submenus[1].parameters[4].value = 80;
+
+  mainMenus[3].submenus[2].parameters[0].value = 50;
+  mainMenus[3].submenus[2].parameters[1].value = 60;
+  mainMenus[3].submenus[2].parameters[2].value = 70;
+  mainMenus[3].submenus[2].parameters[3].value = 80;
+  mainMenus[3].submenus[2].parameters[4].value = 80;
+
+  mainMenus[3].submenus[3].parameters[0].value = 50;
+  mainMenus[3].submenus[3].parameters[1].value = 60;
+  mainMenus[3].submenus[3].parameters[2].value = 70;
+  mainMenus[3].submenus[3].parameters[3].value = 80;
+  mainMenus[3].submenus[3].parameters[4].value = 80;
+
+  
+
+  
+  // Manually specify parameter values
+  mainMenus[4].submenus[0].parameters[0].value = 10;
+  mainMenus[4].submenus[0].parameters[1].value = 20;
+  mainMenus[4].submenus[0].parameters[2].value = 30;
+  mainMenus[4].submenus[0].parameters[3].value = 40;
+  mainMenus[4].submenus[0].parameters[4].value = 50;
+  
+  mainMenus[4].submenus[1].parameters[0].value = 50;
+  mainMenus[4].submenus[1].parameters[1].value = 60;
+  mainMenus[4].submenus[1].parameters[2].value = 70;
+  mainMenus[4].submenus[1].parameters[3].value = 80;
+  mainMenus[4].submenus[1].parameters[4].value = 90;
+
+  mainMenus[4].submenus[2].parameters[0].value = 50;
+  mainMenus[4].submenus[2].parameters[1].value = 60;
+  mainMenus[4].submenus[2].parameters[2].value = 70;
+  mainMenus[4].submenus[2].parameters[3].value = 80;
+  mainMenus[4].submenus[2].parameters[4].value = 90;
+
+  mainMenus[4].submenus[3].parameters[0].value = 50;
+  mainMenus[4].submenus[3].parameters[1].value = 60;
+  mainMenus[4].submenus[3].parameters[2].value = 70;
+  mainMenus[4].submenus[3].parameters[3].value = 80;
+  mainMenus[4].submenus[3].parameters[4].value = 90;
+
+  
+
+
+  int eepromAddress = EEPROM_START_ADDRESS;
+  
+  for (int mainMenuIndex = 0; mainMenuIndex < MAX_MAIN_MENUS; mainMenuIndex++) {
+    MainMenu& mainMenu = mainMenus[mainMenuIndex];
+    
+    for (int submenuIndex = 0; submenuIndex < mainMenu.numSubmenus; submenuIndex++) {
+      Submenu& submenu = mainMenu.submenus[submenuIndex];
+      
+      for (int parameterIndex = 0; parameterIndex < submenu.numParameters; parameterIndex++) {
+        Parameter& parameter = submenu.parameters[parameterIndex];
+        
+        // Write parameter value to EEPROM
+        EEPROM.write(eepromAddress, parameter.value);
+        
+        // Increment EEPROM address
+        eepromAddress += sizeof(int);
+      }
+    }
+  }
+  
+  // Commit changes to EEPROM
+  EEPROM.commit();
+}
+
